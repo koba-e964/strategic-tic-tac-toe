@@ -1,5 +1,6 @@
 #include <cassert>
 #include <iostream>
+#include <vector>
 using namespace std;
 
 typedef long long ll;
@@ -65,6 +66,13 @@ bool is_winning_subboard(int sub, State col) {
   return is_winning_ninebits(set);
 }
 
+bool is_finishing_subboard(int sub) {
+  int filled = 0;
+  for (int i = 0; i < 9; ++i) {
+    filled |= (sub >> (2 * i)) & 3 ? 1 << i : 0;
+  }
+  return is_winning_subboard(sub, Black) || is_winning_subboard(sub, White) || filled == 0777;
+}
 /*
  * returned value:
  *   (-1, ??): error
@@ -73,21 +81,48 @@ bool is_winning_subboard(int sub, State col) {
 pair<int, int> place_intelligent(Board b, int pos, int xy, State s) {
   int comp_status = 0;
   for (int i = 0; i < 9; ++i) {
-    if (is_winning_subboard(b[i / 3] >> (18 * (i % 3)), s)) {
+    int subboard = b[i / 3] >> (18 * (i % 3));
+    if (is_finishing_subboard(subboard)) {
       comp_status |= 1 << i;
     }
   }
   if (comp_status & (1 << pos)) {
     return pair<int, int>(-1, 0);
   }
-  int obligation = comp_status & (1 << xy) ? (0777 - comp_status) : (1 << xy);
   if (get(b, pos, xy) != Vacant) {
     return pair<int, int>(-1, 1);
   }
   put(b, pos, xy, s);
+  // recompute comp_status
+  for (int i = 0; i < 9; ++i) {
+    int subboard = b[i / 3] >> (18 * (i % 3));
+    if (is_finishing_subboard(subboard)) {
+      comp_status |= 1 << i;
+    }
+  }
+  int obligation = comp_status & (1 << xy) ? (0777 - comp_status) : (1 << xy);
   return pair<int, int>(0, obligation);
 }
 
+vector<int> placeability(Board b) {
+  int comp_status = 0;
+  vector<int> result(9, 0);
+  for (int i = 0; i < 9; ++i) {
+    int subboard = b[i / 3] >> (18 * (i % 3));
+    if (is_finishing_subboard(subboard)) {
+      comp_status |= 1 << i;
+    }
+  }
+  for (int pos = 0; pos < 9; ++pos) {
+    if (comp_status & (1 << pos)) {
+      continue;
+    }
+    for (int xy = 0; xy < 9; ++xy) {
+      result[pos] |= get(b, pos, xy) == Vacant ? 1 << xy : 0;
+    }
+  }
+  return result;
+}
 
 bool is_winning_board(Board b, State col) {
   int comp_status = 0;
@@ -99,9 +134,17 @@ bool is_winning_board(Board b, State col) {
   return is_winning_ninebits(comp_status);
 }
 
-State is_finishing_board(Board b) {
+int is_finishing_board(Board b) {
   bool bl = is_winning_board(b, Black);
   bool wh = is_winning_board(b, White);
+  vector<int> pl = placeability(b);
+  bool smother = true;
+  for (int i = 0; i < 9; ++i) {
+    if (pl[i] != 0) smother = false;
+  }
+  if (smother) {
+    return 3;
+  }
   if (bl && wh) {
     assert (!"black and white both won! What happened!?");
   }
@@ -116,23 +159,28 @@ int main(void) {
   Board b = {};
   State turn = Black;
   int obligation = 0777;
+  srand(time(0));
   while (1) {
     print_board(b);
-    State winner = is_finishing_board(b);
+    int winner = is_finishing_board(b);
     if (winner != Vacant) {
       cout << "Game finished." << endl;
-      cout << (winner == Black ? "x" : "o") << " won." << endl;
+      if (winner == 3) {
+	cout << "Draw" << endl;
+      } else {
+	cout << (winner == Black ? "x" : "o") << " won." << endl;
+      }
       break;
     }
     int pos, xy;
-    if (!(cin >> pos >> xy)) {
-      break;
-    }
+    vector<int> pl = placeability(b);
+
+    do {
+      pos = rand() % 9;
+      xy = rand() % 9;
+    } while ((obligation & (1 << pos)) == 0 || (pl[pos] & (1 << xy)) == 0);
+
     cout << "pos=" << pos << ", xy=" << xy << endl;
-    if ((obligation & (1 << pos)) == 0) {
-      cout << "error, invalid position." << endl;
-      continue;
-    }
     pair<int, int> result = place_intelligent(b, pos, xy, turn);
     if (result.first < 0) {
       cout << "invalid move" << endl;
